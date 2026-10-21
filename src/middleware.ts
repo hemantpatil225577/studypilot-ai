@@ -1,0 +1,38 @@
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
+
+const PROTECTED = ["/dashboard", "/onboarding", "/subjects", "/calendar", "/tutor", "/quiz", "/analytics", "/settings"];
+
+export async function middleware(req: NextRequest) {
+  let res = NextResponse.next({ request: req });
+  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    cookies: {
+      getAll: () => req.cookies.getAll(),
+      setAll: (list: CookieToSet[]) => {
+        list.forEach(({ name, value }) => req.cookies.set(name, value));
+        res = NextResponse.next({ request: req });
+        list.forEach(({ name, value, options }) => res.cookies.set(name, value, options));
+      },
+    },
+  });
+  const { data } = await supabase.auth.getUser(); // validates and refreshes the session
+  const path = req.nextUrl.pathname;
+  const isProtected = PROTECTED.some((p) => path === p || path.startsWith(p + "/"));
+  if (!data.user && isProtected) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", path);
+    return NextResponse.redirect(url);
+  }
+  if (data.user && (path === "/login" || path === "/register")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+  return res;
+}
+
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|api/).*)"] };
